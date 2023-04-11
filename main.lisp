@@ -78,10 +78,10 @@
     :default nil)
 
 ;---- hash table
-(defparameter *everything* (make-hash-table))
+;(defparameter *everything* (make-hash-table))
 (defparameter *file-name* "~/Code/SKET/UNIVERSE/EVERYTHING" )
-(setf (gethash 'flower *everything*) (make-hash-table))
-(setf (gethash 'user *everything*) (make-hash-table))
+;(setf (gethash 'flower *everything*) (make-hash-table))
+;(setf (gethash 'user *everything*) (make-hash-table))
 
 (defun save-file ()
  (defparameter *p-everything* '())
@@ -145,16 +145,20 @@
         ((eq (first expr) 'quote) (second expr))
         ((eq (first expr) 'atom) (atom (eval. (second expr) caller)))
         ((eq (first expr) 'eq) (eq (eval. (second expr) caller) (eval. (third expr) caller)))
-        ((eq (first expr) 'car) (car (eval. (second expr) caller)))
-        ((eq (first expr) 'cdr) (cdr (eval. (second expr) caller)))
+        ((eq (first expr) 'first) (car (eval. (second expr) caller)))
+        ((eq (first expr) 'rest) (cdr (eval. (second expr) caller)))
         ((eq (first expr) 'cons) (cons (eval. (second expr) caller) (eval. (third expr) caller)))
+
         ((eq (first expr) 'cond) (cond-eval (cdr expr) caller))
+        ((eq (first expr) 'begin) (last (mapcar (lambda (e) (eval. e caller)) (cdr expr))))
+
         ((eq (first expr) 'get) (get1 caller (eval. (second expr) caller)))
         ((eq (first expr) 'set) (set1 caller (eval. (second expr) caller) (eval. (third expr) caller)))
-        ((eq (first expr) 'run) (run1 caller  (eval. (second expr) caller)))       
-        ((eq (first expr) 'progn) (last (mapcar (lambda (e) (eval. e caller)) (cdr expr))))
+        ((eq (first expr) 'run) (run1 caller  (eval. (second expr) caller) (mapcar (lambda (e) (eval. e caller)) (rest (rest expr)))))
         ((eq (first expr) 'cal) (cal1 caller (eval. (second expr) caller) (eval. (third expr) caller)))
-        (t (apply (eval. (first expr) caller) (eval-list (cdr expr) caller) caller))))
+        ((eq (first expr) 'print) (print (eval. (second expr) caller)))
+;       (t (apply (eval. (first expr) caller) (eval-list (cdr expr) caller) caller))
+))
 
 (defun get1 (caller property) ;(get color) 
   (gethash property (gethash caller *everything*)))
@@ -162,9 +166,15 @@
 (defun set1 (caller property value) ;(set color red)
   (setf (gethash property (gethash caller *everything*)) value))
 
-(defun run1 (caller func) ;(run hello1); where hello1 = '(lambda () "hello world")
-  (eval. (third (gethash func (gethash caller *everything*))) caller))
+(defun run1 (caller func &optional params) ;(run hello1); where hello1 = '(lambda () "hello world")
+  (setf lamb (gethash func (gethash caller *everything*)))
+  ;(PRINT (third lamb))
+  (setf code (sublis (pairlis (second lamb) params) (third lamb)))
+  ;(print code)
+  (eval. code caller)
+  )
 
 (defun cal1 (caller object expr) ;(call_func ball (bounce))
- ((gethash run (gethash object *everything*)) caller expr); first get the function run_func from the object called
+(run1 object 'exe (list caller expr)) ; first get the function run_func from the object called
 )
+
