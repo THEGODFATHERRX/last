@@ -24,8 +24,6 @@
   (logger "socket closed"))
 
 
-(defun evaluate_code (msg) 
-  (eval. (read-from-string msg)))
 
 (defun process-client-socket (client-socket)
   "Process client socket that got some activity"
@@ -35,7 +33,7 @@
   (let ((message (read-line (usocket:socket-stream client-socket))))
     (logger "got a message: ~a" message)
   ; (send-text-to-socket message client-socket) ))
-    (send-text-to-socket (eval. (read-from-string message) 'user) client-socket) ))
+    (send-text-to-socket (eval. (read-from-string message) 'GOD) client-socket) ))
 
 (defun run-tcp-server (host port)
   "Run TCP server in a loop, listening to incoming connections.
@@ -74,14 +72,12 @@
 (defun main (&rest argv)
   (declare (ignorable argv))
   (sb-thread:join-thread 
-    (run-server-in-thread "0.0.0.0" 12324))
+    (run-server-in-thread "0.0.0.0" 12321))
     :default nil)
 
 ;---- hash table
-;(defparameter *everything* (make-hash-table))
+(defparameter *everything* (make-hash-table))
 (defparameter *file-name* "~/Code/SKET/UNIVERSE/EVERYTHING" )
-;(setf (gethash 'flower *everything*) (make-hash-table))
-;(setf (gethash 'user *everything*) (make-hash-table))
 
 (defun save-file ()
  (defparameter *p-everything* '())
@@ -154,9 +150,10 @@
 
         ((eq (first expr) 'get) (get1 caller (eval. (second expr) caller)))
         ((eq (first expr) 'set) (set1 caller (eval. (second expr) caller) (eval. (third expr) caller)))
-        ((eq (first expr) 'run) (run1 caller  (eval. (second expr) caller) (mapcar (lambda (e) (eval. e caller)) (rest (rest expr)))))
+        ((eq (first expr) 'run) (run1 caller  (eval. (second expr) caller) (rest (rest expr))))
         ((eq (first expr) 'cal) (cal1 caller (eval. (second expr) caller) (eval. (third expr) caller)))
         ((eq (first expr) 'print) (print (eval. (second expr) caller)))
+        ((eq (first expr) 'create) (create1 caller (second expr))) 
 ;       (t (apply (eval. (first expr) caller) (eval-list (cdr expr) caller) caller))
 ))
 
@@ -166,15 +163,20 @@
 (defun set1 (caller property value) ;(set color red)
   (setf (gethash property (gethash caller *everything*)) value))
 
-(defun run1 (caller func &optional params) ;(run hello1); where hello1 = '(lambda () "hello world")
+(defun run1 (caller func &optional params) ;(run func '(p1 p2 p3))
   (setf lamb (gethash func (gethash caller *everything*)))
-  ;(PRINT (third lamb))
   (setf code (sublis (pairlis (second lamb) params) (third lamb)))
-  ;(print code)
   (eval. code caller)
   )
 
-(defun cal1 (caller object expr) ;(call_func ball (bounce))
-(run1 object 'exe (list caller expr)) ; first get the function run_func from the object called
-)
+(defun cal1 (caller object expr) ;(call ball (bounce))
+(run1 object 'exe (list caller expr)) ; first get the function exe from the object called
+) ; caller expression
+
+(defun create1 (caller name) 
+(setf (gethash name *everything*) (make-hash-table))
+(setf (gethash 'exe (gethash name *everything*)) 
+        '(lambda (x y) 
+                (cond 
+                        ((eq name X) (run y))))))
 
