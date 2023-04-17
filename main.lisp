@@ -24,6 +24,10 @@
   (logger "socket closed"))
 
 
+(defun println (object)
+  (princ object)
+  (format t "=> ~%"))
+
 
 (defun process-client-socket (client-socket)
   "Process client socket that got some activity"
@@ -33,7 +37,7 @@
   (let ((message (read-line (usocket:socket-stream client-socket))))
     (logger "got a message: ~a" message)
   ; (send-text-to-socket message client-socket) ))
-    (send-text-to-socket (eval. (read-from-string message) 'GOD) client-socket) ))
+    (send-text-to-socket (format nil "=> ~a" (eval. (read-from-string message) 'GOD)) client-socket) ))
 
 (defun run-tcp-server (host port)
   "Run TCP server in a loop, listening to incoming connections.
@@ -76,8 +80,8 @@
     :default nil)
 
 ;---- hash table
-(defparameter *everything* (make-hash-table))
-(defparameter *file-name* "~/Code/SKET/UNIVERSE/EVERYTHING" )
+; (defparameter *everything* (make-hash-table))
+(defparameter *file-name* "~/Desktop/UNIVERSE/EVERYTHING" )
 
 (defun save-file ()
  (defparameter *p-everything* '())
@@ -144,16 +148,15 @@
         ((eq (first expr) 'first) (car (eval. (second expr) caller)))
         ((eq (first expr) 'rest) (cdr (eval. (second expr) caller)))
         ((eq (first expr) 'cons) (cons (eval. (second expr) caller) (eval. (third expr) caller)))
-
+        ((eq (first expr) 'eval) (eval. (second expr) caller)) ;(eval (fn param))
         ((eq (first expr) 'cond) (cond-eval (cdr expr) caller))
         ((eq (first expr) 'begin) (last (mapcar (lambda (e) (eval. e caller)) (cdr expr))))
 
         ((eq (first expr) 'get) (get1 caller (eval. (second expr) caller)))
         ((eq (first expr) 'set) (set1 caller (eval. (second expr) caller) (eval. (third expr) caller)))
-        ((eq (first expr) 'run) (run1 caller  (eval. (second expr) caller) (rest (rest expr))))
+        ((eq (first expr) 'run) (run1 caller  (eval. (second expr) caller) (eval. (third expr) caller)))
         ((eq (first expr) 'cal) (cal1 caller (eval. (second expr) caller) (eval. (third expr) caller)))
-        ((eq (first expr) 'print) (print (eval. (second expr) caller)))
-        ((eq (first expr) 'create) (create1 caller (second expr))) 
+        ((eq (first expr) 'create) (create1 caller (eval. (second expr) caller))) 
 ;       (t (apply (eval. (first expr) caller) (eval-list (cdr expr) caller) caller))
 ))
 
@@ -164,19 +167,21 @@
   (setf (gethash property (gethash caller *everything*)) value))
 
 (defun run1 (caller func &optional params) ;(run func '(p1 p2 p3))
-  (setf lamb (gethash func (gethash caller *everything*)))
-  (setf code (sublis (pairlis (second lamb) params) (third lamb)))
-  (eval. code caller)
-  )
+(setf lamb (gethash func (gethash caller *everything*)))
+(setf code (sublis (pairlis (second lamb) params) (third lamb)))
+(eval. code caller))
 
 (defun cal1 (caller object expr) ;(call ball (bounce))
 (run1 object 'exe (list caller expr)) ; first get the function exe from the object called
 ) ; caller expression
 
-(defun create1 (caller name) 
+(defun create1 (caller name) ;(create ball)
 (setf (gethash name *everything*) (make-hash-table))
 (setf (gethash 'exe (gethash name *everything*)) 
-        '(lambda (x y) 
-                (cond 
-                        ((eq name X) (run y))))))
+        '(lambda (c m) ; caller expression
+           (cond ((eq 'GOD c) (eval m))))))
 
+(defun test (X Y) (COND 
+                ((EQ 'GOD X) (COND 
+                               ((EQ (FIRST Y) 'GET) (GET (FIRST (REST Y))))
+                               ))))
