@@ -145,8 +145,8 @@
         ((eq (first expr) 'quote) (second expr))
         ((eq (first expr) 'atom) (atom (eval. (second expr) caller)))
         ((eq (first expr) 'eq) (eq (eval. (second expr) caller) (eval. (third expr) caller)))
-        ((eq (first expr) 'first) (car (eval. (second expr) caller)))
-        ((eq (first expr) 'rest) (cdr (eval. (second expr) caller)))
+        ((eq (first expr) 'car) (car (eval. (second expr) caller)))
+        ((eq (first expr) 'cdr) (cdr (eval. (second expr) caller)))
         ((eq (first expr) 'cons) (cons (eval. (second expr) caller) (eval. (third expr) caller)))
         ((eq (first expr) 'eval) (eval. (second expr) caller)) ;(eval (fn param))
         ((eq (first expr) 'cond) (cond-eval (cdr expr) caller))
@@ -157,6 +157,9 @@
         ((eq (first expr) 'run) (run1 caller  (eval. (second expr) caller) (eval. (third expr) caller)))
         ((eq (first expr) 'cal) (cal1 caller (eval. (second expr) caller) (eval. (third expr) caller)))
         ((eq (first expr) 'create) (create1 caller (eval. (second expr) caller))) 
+        ((multiple-value-bind (value bool) (gethash (car expr) (gethash caller *everything*))
+            (when bool
+                (run2 caller value (cdr expr)))))
 ;       (t (apply (eval. (first expr) caller) (eval-list (cdr expr) caller) caller))
 ))
 
@@ -171,6 +174,10 @@
 (setf code (sublis (pairlis (second lamb) params) (third lamb)))
 (eval. code caller))
 
+(defun run2 (caller lamb &optional params) ;(run func '(p1 p2 p3))
+(setf code (sublis (pairlis (second lamb) params) (third lamb)))
+(eval. code caller))
+
 (defun cal1 (caller object expr) ;(call ball (bounce))
 (run1 object 'exe (list caller expr)) ; first get the function exe from the object called
 ) ; caller expression
@@ -181,7 +188,12 @@
         '(lambda (c m) ; caller expression
            (cond ((eq 'GOD c) (eval m))))))
 
+
+; error here is that the list gets evaluated. when we want it to be treated as a list
 (defun test (X Y) (COND 
                 ((EQ 'GOD X) (COND 
                                ((EQ (FIRST Y) 'GET) (GET (FIRST (REST Y))))
                                ))))
+
+(defun repl ()
+  (loop (println (eval. (read) 'GOD))))
