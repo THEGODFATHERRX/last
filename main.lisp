@@ -80,68 +80,48 @@
     :default nil)
 
 ;---- hash table
-; (defparameter *everything* (make-hash-table))
-(defparameter *file-name* "~/Desktop/UNIVERSE/EVERYTHING" )
+(ql:quickload "cl-store")
+
+(defparameter *everything* (make-hash-table))
+(defparameter *file-name* "everything.out")
+
 
 (defun save-file ()
- (defparameter *p-everything* '())
- 
- (loop for key1 being the hash-keys of *everything*
-         using (hash-value value1)
-         :do
-         (print key1)
-         (terpri)
-         (setf (getf *p-everything* key1) '())
-         (loop for key2 being the hash-keys of value1
-           using (hash-value value2)
-           :do
-           (format t "~S ~S ~%" key2 value2)
-           (setf (getf (getf *p-everything* key1) key2) value2)))
-
- (with-open-file (stream *file-name* :direction :io)
- (format stream "~s" *p-everything*)))
-
+  (cl-store:store *everything* *file-name* ))
 
 (defun load-file ()
- (defparameter *everything* (make-hash-table))
- (defparameter *p-everything* '())
- 
- (with-open-file (stream *file-name* :direction :input)
- (setf *p-everything* (read stream)))
- 
- (loop for (key1 value1) on *p-everything* by #'cddr
-                do (setf (gethash key1 *everything*) (make-hash-table))
-                   (loop for (key2 value2) on value1 by #'cddr
-                    do (setf (gethash key2 (gethash key1 *everything*)) value2))))
+  (defparameter *everything* (cl-store:restore *file-name* )))
 
 (defun print-universe () (loop for key1 being the hash-keys of *everything*
-        using (hash-value value1)
-        :do
-        (print key1)
-        (terpri)
-        (loop for key2 being the hash-keys of value1
-          using (hash-value value2)
-          :do
-          (format t "~S ~S ~%" key2 value2))))
+                               using (hash-value value1)
+                               :do
+                               (print key1)
+                               (terpri)
+                               (loop for key2 being the hash-keys of value1
+                                     using (hash-value value2)
+                                     :do
+                                     (format t "~S ~S ~%" key2 value2))))
 
 
+(defun println (object)
+  (princ object)
+  (format t "~%=> "))
 
-; -- game eval
+                                        ; -- game eval
 (defun eval-list (lst &optional caller)
   (if (null lst)
       nil
-    (cons (eval. (first lst) caller) (eval-list (rest lst) caller))))
+      (cons (eval. (first lst) caller) (eval-list (rest lst) caller))))
 
 (defun cond-eval (clauses &optional caller)
   (cond ((eval. (first (first clauses)) caller) (eval. (second (first clauses)) caller))
         (t (cond-eval (rest clauses) caller))))
 
-(defun apply. (object method &rest args)
-  (apply. (get object method) caller args))
-;((eq (first expr) 'apply) (apply (eval (second expr) caller) (eval (third expr) caller) (eval-list (cdr (cdr (cdr expr)))) caller))
-
+ 
 (defun eval. (expr caller)
-  (cond ((atom expr) expr)
+  (cond
+        ((atom expr) expr)
+        ; basic
         ((eq (first expr) 'quote) (second expr))
         ((eq (first expr) 'atom) (atom (eval. (second expr) caller)))
         ((eq (first expr) 'eq) (eq (eval. (second expr) caller) (eval. (third expr) caller)))
@@ -151,17 +131,26 @@
         ((eq (first expr) 'eval) (eval. (second expr) caller)) ;(eval (fn param))
         ((eq (first expr) 'cond) (cond-eval (cdr expr) caller))
         ((eq (first expr) 'begin) (last (mapcar (lambda (e) (eval. e caller)) (cdr expr))))
-
-        ((eq (first expr) 'get) (get1 caller (eval. (second expr) caller)))
-        ((eq (first expr) 'set) (set1 caller (eval. (second expr) caller) (eval. (third expr) caller)))
-        ((eq (first expr) 'run) (run1 caller  (eval. (second expr) caller) (eval. (third expr) caller)))
-        ((eq (first expr) 'cal) (cal1 caller (eval. (second expr) caller) (eval. (third expr) caller)))
-        ((eq (first expr) 'create) (create1 caller (eval. (second expr) caller))) 
+        ; numbers
+        ((eq (first expr) '+) (+ (eval. (second expr) caller) (eval. (third expr) caller)))
+        ((eq (first expr) '-) (- (eval. (second expr) caller) (eval. (third expr) caller)))
+        ((eq (first expr) '*) (* (eval. (second expr) caller) (eval. (third expr) caller)))
+        ((eq (first expr) '/) (/ (eval. (second expr) caller) (eval. (third expr) caller)))
+        ((eq (first expr) '+) (+ (eval. (second expr) caller) (eval. (third expr) caller)))        
+        ((eq (first expr) '^) (expt (eval. (second expr) caller) (eval. (third expr) caller)))
+        ; time and randomness
+        ((eq (first expr) 'time)  (get-universal-time))
+        ((eq (first expr) 'rand) (+ (random 8999999999) 1000000000))
+        
+        ; universe
+        ((eq (first expr) 'get) (get1 caller (second expr)))
+        ((eq (first expr) 'set) (set1 caller  (second expr) (eval. (third expr) caller)))
+        ((eq (first expr) 'run) (run1 caller   (second expr)  (eval. (third expr) caller)))
+        ((eq (first expr) 'call) (cal1 caller (second expr)  (third expr)))
+        ((eq (first expr) 'create) (create1 caller  (second expr))) 
         ((multiple-value-bind (value bool) (gethash (car expr) (gethash caller *everything*))
-            (when bool
-                (run2 caller value (cdr expr)))))
-;       (t (apply (eval. (first expr) caller) (eval-list (cdr expr) caller) caller))
-))
+           (when bool
+             (run2 caller value (cdr expr)))))))
 
 (defun get1 (caller property) ;(get color) 
   (gethash property (gethash caller *everything*)))
@@ -170,30 +159,33 @@
   (setf (gethash property (gethash caller *everything*)) value))
 
 (defun run1 (caller func &optional params) ;(run func '(p1 p2 p3))
-(setf lamb (gethash func (gethash caller *everything*)))
-(setf code (sublis (pairlis (second lamb) params) (third lamb)))
-(eval. code caller))
+  (setf lamb (gethash func (gethash caller *everything*)))
+  (setf code (sublis (pairlis (second lamb) params) (third lamb)))
+  (eval. code caller))
 
 (defun run2 (caller lamb &optional params) ;(run func '(p1 p2 p3))
-(setf code (sublis (pairlis (second lamb) params) (third lamb)))
-(eval. code caller))
+  (setf code (sublis (pairlis (second lamb) params) (third lamb)))
+  (eval. code caller))
 
 (defun cal1 (caller object expr) ;(call ball (bounce))
-(run1 object 'exe (list caller expr)) ; first get the function exe from the object called
-) ; caller expression
+  (run1 object 'exe (list caller expr)) ; first get the function exe from the object called
+  ) ; caller expression
 
 (defun create1 (caller name) ;(create ball)
-(setf (gethash name *everything*) (make-hash-table))
-(setf (gethash 'exe (gethash name *everything*)) 
-        '(lambda (c m) ; caller expression
-           (cond ((eq 'GOD c) (eval m))))))
+  (unless (gethash name *everything*)
+    (setf (gethash name *everything*) (make-hash-table))
+    (setf (gethash 'exe (gethash name *everything*)) 
+        `(lambda (c m) ; caller expression
+          (cond ((eq ,caller c) (eval m)))))))
 
 
-; error here is that the list gets evaluated. when we want it to be treated as a list
-(defun test (X Y) (COND 
-                ((EQ 'GOD X) (COND 
-                               ((EQ (FIRST Y) 'GET) (GET (FIRST (REST Y))))
-                               ))))
 
 (defun repl ()
   (loop (println (eval. (read) 'GOD))))
+
+
+;; TODO: pretty-print hashtable, move, look, speak, sun/time
+                                        
+;; move: 3 objects: object, curr room, next room.
+;; (move obj curr next)
+
