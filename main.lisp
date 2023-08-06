@@ -24,9 +24,7 @@
   (logger "socket closed"))
 
 
-(defun println (object)
-  (princ object)
-  (format t "=> ~%"))
+
 
 
 (defun process-client-socket (client-socket)
@@ -79,19 +77,6 @@
     (run-server-in-thread "0.0.0.0" 12321))
     :default nil)
 
-;---- hash table
-(ql:quickload "cl-store")
-
-(defparameter *everything* (make-hash-table))
-(defparameter *file-name* "everything.out")
-
-
-(defun save-file ()
-  (cl-store:store *everything* *file-name* ))
-
-(defun load-file ()
-  (defparameter *everything* (cl-store:restore *file-name* )))
-
 (defun print-universe () (loop for key1 being the hash-keys of *everything*
                                using (hash-value value1)
                                :do
@@ -102,6 +87,19 @@
                                      :do
                                      (format t "~S ~S ~%" key2 value2))))
 
+
+(ql:quickload "cl-store")
+
+; hastable
+(defparameter *everything* (make-hash-table))
+(defparameter *file-name* "everything.out")
+
+; save and load from file
+(defun save-file ()
+  (cl-store:store *everything* *file-name* ))
+
+(defun load-file ()
+  (defparameter *everything* (cl-store:restore *file-name* )))
 
 (defun println (object)
   (princ object)
@@ -117,7 +115,7 @@
   (cond ((eval. (first (first clauses)) caller) (eval. (second (first clauses)) caller))
         (t (cond-eval (rest clauses) caller))))
 
- 
+
 (defun eval. (expr caller)
   (cond
         ((atom expr) expr)
@@ -130,29 +128,29 @@
         ((eq (first expr) 'cons) (cons (eval. (second expr) caller) (eval. (third expr) caller)))
         ((eq (first expr) 'eval) (eval. (second expr) caller)) ;(eval (fn param))
         ((eq (first expr) 'cond) (cond-eval (cdr expr) caller))
-        ((eq (first expr) 'begin) (last (mapcar (lambda (e) (eval. e caller)) (cdr expr))))
+        ((eq (first expr) 'begin) (cddr (mapcar (lambda (e) (eval. e caller)) (cdr expr))))
         ; numbers
         ((eq (first expr) '+) (+ (eval. (second expr) caller) (eval. (third expr) caller)))
         ((eq (first expr) '-) (- (eval. (second expr) caller) (eval. (third expr) caller)))
         ((eq (first expr) '*) (* (eval. (second expr) caller) (eval. (third expr) caller)))
         ((eq (first expr) '/) (/ (eval. (second expr) caller) (eval. (third expr) caller)))
-        ((eq (first expr) '+) (+ (eval. (second expr) caller) (eval. (third expr) caller)))        
         ((eq (first expr) '^) (expt (eval. (second expr) caller) (eval. (third expr) caller)))
         ; time and randomness
         ((eq (first expr) 'time)  (get-universal-time))
         ((eq (first expr) 'rand) (+ (random 8999999999) 1000000000))
-        
+
         ; universe
         ((eq (first expr) 'get) (get1 caller (second expr)))
         ((eq (first expr) 'set) (set1 caller  (second expr) (eval. (third expr) caller)))
         ((eq (first expr) 'run) (run1 caller   (second expr)  (eval. (third expr) caller)))
         ((eq (first expr) 'call) (cal1 caller (second expr)  (third expr)))
-        ((eq (first expr) 'create) (create1 caller  (second expr))) 
+        ((eq (first expr) 'create) (create1 caller  (second expr)))
+
         ((multiple-value-bind (value bool) (gethash (car expr) (gethash caller *everything*))
            (when bool
              (run2 caller value (cdr expr)))))))
 
-(defun get1 (caller property) ;(get color) 
+(defun get1 (caller property) ;(get color)
   (gethash property (gethash caller *everything*)))
 
 (defun set1 (caller property value) ;(set color red)
@@ -174,14 +172,18 @@
 (defun create1 (caller name) ;(create ball)
   (unless (gethash name *everything*)
     (setf (gethash name *everything*) (make-hash-table))
-    (setf (gethash 'exe (gethash name *everything*)) 
+    (setf (gethash 'exe (gethash name *everything*))
         `(lambda (c m) ; caller expression
           (cond ((eq ,caller c) (eval m)))))))
 
 
 
 (defun repl ()
-  (loop (println (eval. (read) 'GOD))))
+  (loop (let ((input (read))) 
+          (cond 
+            ((eq (car input) 'exit) (return))
+            (t (println (eval. input 'GOD)))))))
+
 
 
 ;; TODO: pretty-print hashtable, move, look, speak, sun/time
