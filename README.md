@@ -8,12 +8,8 @@ to run locally, use the repl function, which logs in as GOD.
 - create new objects with (create name)
 - edit the object using (cal object (set/get/run ....
 
-# vision
-```lisp
-(create ball)
-(cal ball (set bounce (lambda  () 
-                          "You bounced the ball"
-                           (set health (1- (get health))))))
-(call ball bounce)
-;> "You bounced the ball"
-```
+# Database
+currently the eval is complete and can support a complete setup. 
+I have a added a tiny world to the DB, for people to get started.
+There is a simple ball beach and ocean.
+kicking the ball, moves it into the ocean.
