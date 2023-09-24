@@ -1,81 +1,78 @@
-(ql:quickload "usocket")
+;; Load the required libraries
+(ql:quickload '(:bordeaux-threads :usocket))
 
 
 
-(defun send-text-to-socket (text socket)
-  (let ((socket-stream (usocket:socket-stream socket)))
-    (format
-      socket-stream
-      (format nil "~a~%" text))  ; adding a line break at the end for prettiness
-    (force-output socket-stream)))
+;; Define a function to handle client connections
+(defun handle-client (client-socket)
+  (let* ((stream (usocket:socket-stream client-socket))
+	 (user (log-in stream)))
 
+    (when (null user) 
+      (format stream "credentials incorrect")
+      (force-output stream)
+      (return-from handle-client))
 
-(defun logger (text &rest args)
-  "Simple wrapper around format func to simplify logging"
-  (apply 'format (append (list t (concatenate 'string text "~%")) args)))
+    (format stream "logged in as ~a~%" user)
+    (force-output stream)
+    (setf (gethash 'stream (gethash user *everything*)) stream) 
 
-
-(defun close-socket (socket)
-  "Close a socket without raising an error if something goes wrong"
-  (handler-case
-      (usocket:socket-close socket)
-    (error (e)
-      (logger "ignoring the error that happened while trying to close socket: ~a" e)))
-  (logger "socket closed"))
-
-
-
-
-
-(defun process-client-socket (client-socket)
-  "Process client socket that got some activity"
-  ;; NOTE: read-line blocks until end-of-line character is received
-  ;; see http://mihai.bazon.net/blog/howto-multi-threaded-tcp-server-in-common-lisp
-  ;; for read-byte-at-a-time solution
-  (let ((message (read-line (usocket:socket-stream client-socket))))
-    (logger "got a message: ~a" message)
-  ; (send-text-to-socket message client-socket) ))
-    (send-text-to-socket (format nil "=> ~a" (eval. (read-from-string message) 'GOD)) client-socket) ))
-
-(defun run-tcp-server (host port)
-  "Run TCP server in a loop, listening to incoming connections.
-  This is single-threaded version. Better approach would be to run
-  process-client-socket in a separate thread every time there is activity
-  on the client socket.
-  All client sockets are kept in all-sockets list."
-  (let* ((master-socket (usocket:socket-listen host port :backlog 256))
-         (all-sockets `(,master-socket)))
     (loop
-      (loop for sock in (usocket:wait-for-input all-sockets :ready-only t)
-            do (if (eq sock master-socket)
-                 ; new connection initiated
-                 (let ((client-socket
-                         (usocket:socket-accept master-socket :element-type 'character)))
-                   (push client-socket all-sockets)
-                   (logger "new socket initiated: ~a" client-socket))
-                 ; client socket activity
-                 (handler-case
-                   (process-client-socket sock)
-                   (t (e)
-                      (logger "error during processing ~a" e)
-                      (setf all-sockets (delete sock all-sockets))
-                      (close-socket sock)) ))))))
+      (let ((message (read stream)))
+	(format t "msg recieved~%")
+        (if (or (null message) (eq message 'QUIT))
+            (progn
+              (format t "Client disconnected~%")
+              (return))
+            (progn 
+	      (format stream "> ~a~%" (handler-case (eval. message user)
+					(error (c)
+					       c))) ; cant sent error to stream
+	      (force-output stream)))))))
+
+(defun log-in (stream)
+  (format stream "Enter (username password): ")
+  (force-output stream)
+  (let* ((credential (read stream))
+	 (username (car credential))
+	 (password (cadr credential)))
+    (format t "~a ~a~%" username password) 
+    (cond
+      ((null password) 
+       (multiple-value-bind (value bool) (gethash username *everything*)
+           (unless bool 
+	     (setf (gethash username *everything*) (make-hash-table))
+	     username
+	     ))) ; create user
+      ((multiple-value-bind (value bool) (gethash username *everything*)
+           (when (and bool (eq password (gethash 'password value))) ; if username exists, check password
+	     (format t "~a~%" (gethash 'password value))
+             username))))))
 
 
-(defun run-server-in-thread (host port)
-  "Run TCP server in a separate thread"
-  (let ((thread-name (format nil "tcp-server")))
-    (logger "starting tcp server in a separate thread '~a'" thread-name)
-    (sb-thread:make-thread
-      (lambda () (run-tcp-server host port))
-      :name thread-name)))
+;; Define the main server function
+(defun start-echo-server (port)
+  (let ((server-socket (usocket:socket-listen "0.0.0.0" port :REUSEADDRESS t)))
+    (format t "Server listening on port ~a~%" port)
+    (loop
+      (let ((client-socket (usocket:socket-accept server-socket)))
+        (bt:make-thread (lambda ()
+                          (handle-client client-socket)))))))
 
 
-(defun main (&rest argv)
-  (declare (ignorable argv))
-  (sb-thread:join-thread 
-    (run-server-in-thread "0.0.0.0" 12321))
-    :default nil)
+
+;---- hash table
+(ql:quickload "cl-store")
+
+(defparameter *everything* (make-hash-table))
+(defparameter *file-name* "everything.out")
+
+
+(defun save-file ()
+  (cl-store:store *everything* *file-name* ))
+
+(defun load-file ()
+  (defparameter *everything* (cl-store:restore *file-name* )))
 
 (defun print-universe () (loop for key1 being the hash-keys of *everything*
                                using (hash-value value1)
@@ -88,34 +85,16 @@
                                      (format t "~S ~S ~%" key2 value2))))
 
 
-(ql:quickload "cl-store")
 
-; hastable
-(defparameter *everything* (make-hash-table))
-(defparameter *file-name* "everything.out")
 
-; save and load from file
-(defun save-file ()
-  (cl-store:store *everything* *file-name* ))
+; -- game eval
 
-(defun load-file ()
-  (defparameter *everything* (cl-store:restore *file-name* )))
 
-(defun println (object)
-  (princ object)
-  (format t "~%=> "))
-
-                                        ; -- game eval
-(defun eval-list (lst &optional caller)
-  (if (null lst)
-      nil
-      (cons (eval. (first lst) caller) (eval-list (rest lst) caller))))
-
-(defun cond-eval (clauses &optional caller)
+(defun cond-eval (clauses caller)
   (cond ((eval. (first (first clauses)) caller) (eval. (second (first clauses)) caller))
         (t (cond-eval (rest clauses) caller))))
 
-
+ 
 (defun eval. (expr caller)
   (cond
         ((atom expr) expr)
@@ -128,63 +107,88 @@
         ((eq (first expr) 'cons) (cons (eval. (second expr) caller) (eval. (third expr) caller)))
         ((eq (first expr) 'eval) (eval. (second expr) caller)) ;(eval (fn param))
         ((eq (first expr) 'cond) (cond-eval (cdr expr) caller))
-        ((eq (first expr) 'begin) (cddr (mapcar (lambda (e) (eval. e caller)) (cdr expr))))
-        ; numbers
+        ((eq (first expr) 'begin) (last (mapcar (lambda (e) (eval. e caller)) (cdr expr))))
+        
+	; numbers
         ((eq (first expr) '+) (+ (eval. (second expr) caller) (eval. (third expr) caller)))
         ((eq (first expr) '-) (- (eval. (second expr) caller) (eval. (third expr) caller)))
         ((eq (first expr) '*) (* (eval. (second expr) caller) (eval. (third expr) caller)))
         ((eq (first expr) '/) (/ (eval. (second expr) caller) (eval. (third expr) caller)))
+        ((eq (first expr) '+) (+ (eval. (second expr) caller) (eval. (third expr) caller)))        
         ((eq (first expr) '^) (expt (eval. (second expr) caller) (eval. (third expr) caller)))
-        ; time and randomness
+        
+	; time and randomness
         ((eq (first expr) 'time)  (get-universal-time))
         ((eq (first expr) 'rand) (+ (random 8999999999) 1000000000))
-
+        
         ; universe
         ((eq (first expr) 'get) (get1 caller (second expr)))
         ((eq (first expr) 'set) (set1 caller  (second expr) (eval. (third expr) caller)))
-        ((eq (first expr) 'run) (run1 caller   (second expr)  (eval. (third expr) caller)))
+        ((eq (first expr) 'run) (run1 caller (gethash (second expr) (gethash caller *everything*)) (eval. (third expr) caller)))
         ((eq (first expr) 'call) (cal1 caller (second expr)  (third expr)))
-        ((eq (first expr) 'create) (create1 caller  (second expr)))
+        ((eq (first expr) 'create) (create1 caller  (second expr))) 
+	((eq (first expr) 'msg) (format (gethash 'stream (gethash caller *everything*)) "~a~%" (second expr)) (force-output stream))
+	
+	;save
+	((eq (first expr) 'save) (when (eq caller 'god) (save-file)))
+	;reload
+	((eq (first expr) 'reload) (when (eq caller 'god) (save-file) (load "main.lisp") (load-file)))
 
+
+	; (func param) run func if defined on user itself
         ((multiple-value-bind (value bool) (gethash (car expr) (gethash caller *everything*))
            (when bool
-             (run2 caller value (cdr expr)))))))
+             (run1 caller value (cdr expr)))))))
 
-(defun get1 (caller property) ;(get color)
+(defun get1 (caller property) ;(get color) 
   (gethash property (gethash caller *everything*)))
 
 (defun set1 (caller property value) ;(set color red)
   (setf (gethash property (gethash caller *everything*)) value))
 
-(defun run1 (caller func &optional params) ;(run func '(p1 p2 p3))
-  (setf lamb (gethash func (gethash caller *everything*)))
-  (setf code (sublis (pairlis (second lamb) params) (third lamb)))
-  (eval. code caller))
-
-(defun run2 (caller lamb &optional params) ;(run func '(p1 p2 p3))
-  (setf code (sublis (pairlis (second lamb) params) (third lamb)))
-  (eval. code caller))
+(defun run1 (caller lamb &optional params) ;(run func '(p1 p2 p3))
+  (eval. 
+    (sublis (pairlis (second lamb) params) (third lamb)) ; replace x y in code with values given
+    caller))
 
 (defun cal1 (caller object expr) ;(call ball (bounce))
-  (run1 object 'exe (list caller expr)) ; first get the function exe from the object called
-  ) ; caller expression
+  (run1 object (gethash 'exe (gethash object *everything*)) (list caller expr)) ; send code to func exe on object
+  ) 
 
 (defun create1 (caller name) ;(create ball)
   (unless (gethash name *everything*)
     (setf (gethash name *everything*) (make-hash-table))
-    (setf (gethash 'exe (gethash name *everything*))
-        `(lambda (c m) ; caller expression
-          (cond ((eq ,caller c) (eval m)))))))
+    (setf (gethash 'exe (gethash name *everything*)) 
+        `(lambda (c m) ; exe is the function that is called on the object when (call object '(code)) is used.
+          (cond ((eq ,caller c) (eval m)))))
+    t))
+#|
+(defun create1 (caller name) 
+  (multiple-value-bind (value bool) (gethash name *everything*)
+           (unless bool
+             (setf value (make-hash-table))
+	     (setf (gethash 'exe value) 
+		   `(lambda (c m) ; caller expression
+		      (cond ((eq ,caller c) (eval m))))) 
+	     t)))
 
-
+|#
+; -- repl
+(defun println (object)
+  (princ object)
+  (format t "~%=> "))
 
 (defun repl ()
-  (loop (let ((input (read))) 
-          (cond 
-            ((eq (car input) 'exit) (return))
-            (t (println (eval. input 'GOD)))))))
+  (loop (println (eval. (read) 'GOD))))
 
-
+; -- run
+;; Start the echo server on port 12345
+(defun main ()
+  (progn 
+    (defparameter *everything* (make-hash-table))
+    (load-file)
+    (start-echo-server 12345)
+    (save-file)))
 
 ;; TODO: pretty-print hashtable, move, look, speak, sun/time
                                         
